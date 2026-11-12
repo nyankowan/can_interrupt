@@ -7,7 +7,7 @@ STM32F446RE（Arduino フレームワーク / PlatformIO）で，CAN1 と CAN2 �
 
 | 項目 | 内容 |
 |---|---|
-| ボード | genericSTM32F446RE |
+| ボード | nucleo_f446re |
 | ビットレート | CAN1 / CAN2 とも 1Mbps |
 | タイミング | APB1=45MHz, Prescaler 3, BS1=11TQ, BS2=3TQ（サンプル点 80%） |
 | 受信 | FIFO0 / 全ID受信（標準ID・拡張ID） |
@@ -26,17 +26,29 @@ STM32F446RE（Arduino フレームワーク / PlatformIO）で，CAN1 と CAN2 �
 
 ## 使い方
 
-`src/main.cpp` の `onCanReceive` に受信時の処理を書く．
+`src/main.cpp` のユーザー実装部にある `onCanReceive` が，フレームを受信するたびに呼ばれる．
 
-```cpp
-static void onCanReceive(const CanFrame &f) {
-  // f.bus  : 1 (CAN1) or 2 (CAN2)
-  // f.id   : ID（標準/拡張）
-  // f.ext  : 拡張IDなら 1
-  // f.dlc  : データ長
-  // f.data : データ(8byte)
-}
-```
+### CAN1: 速度司令（ID 0x101）
+
+| バイト | 内容 |
+|---|---|
+| 0-1 | vx（int16, リトルエンディアン） |
+| 2-3 | vy（int16, リトルエンディアン） |
+| 4-5 | omega（int16, リトルエンディアン） |
+| 7 | count（uint8） |
+
+受信値はグローバル変数 `velCmd` に保存される．
+
+### CAN2: RoboMaster モータ（ID 0x201〜0x208）
+
+C620/C610 のフィードバックを想定し，ID 0x201〜0x208 をモータ 1〜8 として，グローバル配列 `robomas[0〜7]` に保存する．
+
+| バイト | 内容 |
+|---|---|
+| 0-1 | 角度（uint16, ビッグエンディアン, 0〜8191） |
+| 2-3 | 回転数 rpm（int16, ビッグエンディアン） |
+| 4-5 | トルク電流（int16, ビッグエンディアン） |
+| 6 | 温度（uint8） |
 
 ### 注意
 
@@ -44,7 +56,7 @@ static void onCanReceive(const CanFrame &f) {
 
 - `Serial` 出力や `delay` など時間のかかる処理は避けること（取りこぼしの原因になる）．
 - 重い処理は，`volatile` のフラグだけ立てて `loop()` 側で行うこと．
-- 受信データはバッファされないため，保存が必要な場合は `onCanReceive` 内で自分でコピーすること．
+- `velCmd` や `robomas` を `loop()` で読むときは，複数フィールドの値がずれないように，割り込みを一時的に止めてコピーすること（`noInterrupts()` / `interrupts()`）．
 
 ## ビルド・書き込み
 
