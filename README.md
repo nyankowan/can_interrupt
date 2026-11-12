@@ -1,24 +1,32 @@
 # can_interrupt
 
-STM32F446RE（Arduino フレームワーク / PlatformIO）で，CAN1 と CAN2 を**割り込みで受信**するサンプル．
+Nucleo-F446RE（Arduino フレームワーク / PlatformIO）で，CAN1 と CAN2 を**割り込みで受信**するサンプル．
 コードはすべて `src/main.cpp` に入っている．受信データはバッファに保存せず，フレームを受信するたびに割り込み内からユーザー関数を呼び出す．
 
 ## 仕様
 
 | 項目 | 内容 |
 |---|---|
-| ボード | genericSTM32F446RE |
+| ボード | nucleo_f446re |
+| クロック | HSE 8MHz（ST-Link から供給，バイパス）を PLL で 180MHz に逓倍，APB1=45MHz |
 | ビットレート | CAN1 / CAN2 とも 1Mbps |
 | タイミング | APB1=45MHz, Prescaler 3, BS1=11TQ, BS2=3TQ（サンプル点 80%） |
 | 受信 | FIFO0 / 全ID受信（標準ID・拡張ID） |
 | 割り込み | `CAN1_RX0_IRQn` / `CAN2_RX0_IRQn`（優先度 5） |
 
+### クロックについて
+
+標準のクロック設定は内蔵 RC 発振器（HSI）で，誤差が約 ±1% ある．1Mbps の CAN ではこの精度では受信できなかったため，`SystemClock_Config` を上書きして HSE を使っている．
+PLL は 8MHz ÷ 8 × 360 ÷ 2 = 180MHz である．
+Nucleo では ST-Link が 8MHz を供給するので，水晶の追加は不要．ST-Link からの供給を外した基板では，HSE が起動せず止まるので注意すること．
+
 ## ピン配置
 
-| バス | RX | TX |
-|---|---|---|
-| CAN1 | PA11 | PA12 |
-| CAN2 | PB12 | PB13 |
+| 機能 | ピン |
+|---|---|
+| CAN1 RX / TX | PA11 / PA12 |
+| CAN2 RX / TX | PB12 / PB13 |
+| シリアル（USART2, ST-Link 仮想 COM） | PA2 / PA3 |
 
 - 各ピンには CAN トランシーバ（SN65HVD230 など）が必要．
 - 1Mbps ではバス両端に終端抵抗（120Ω）を付けること．
@@ -49,15 +57,25 @@ static void onCanReceive(const CanFrame &f) {
 ## ビルド・書き込み
 
 ```sh
-pio run                 # ビルド
-pio run -t upload       # 書き込み
+pio run                      # ビルド
+pio run -t upload            # 書き込み（ST-Link）
+pio device monitor           # シリアルモニタ（115200bps）
 ```
 
-`platformio.ini` の `build_flags = -DHAL_CAN_MODULE_ENABLED` は，Arduino コアで HAL の CAN モジュールを有効にするために必要．
+`platformio.ini` の設定は次のとおり．
+
+| 設定 | 内容 |
+|---|---|
+| `-DHAL_CAN_MODULE_ENABLED` | Arduino コアで HAL の CAN モジュールを有効にする |
+| `-DSERIAL_UART_INSTANCE=2` | `Serial` を USART2（ST-Link 仮想 COM）にする |
+| `upload_protocol = stlink` | ST-Link で書き込む |
+| `monitor_speed = 115200` | モニタのボーレート |
+
+書き込み時に権限エラーが出る場合は，`99-platformio-udev.rules` をインストールすること．
 
 ## 設定の変更
 
 - **ビットレート**: `canBegin()` 内の `Prescaler` / `TimeSeg1` / `TimeSeg2` を変更する．`APB1 / Prescaler / (1+BS1+BS2)` がビットレートになる．
 - **ループバックで動作確認**: `h->Init.Mode` を `CAN_MODE_LOOPBACK` にする（自分が送ったフレームだけ受信できる．送信コードは含まれていない）．
 - **CAN2 のピン**: PB5/PB6 に変える場合は `canBegin()` の GPIO 設定を差し替える．
-- **クロック**: 180MHz 動作（APB1=45MHz）を前提としている．クロック設定を変えた場合は，ビットレートの計算をやり直すこと．
+- **クロック**: `SystemClock_Config` を変更した場合は，APB1 の周波数に合わせてビットレートの計算をやり直すこと．
